@@ -3,10 +3,10 @@ import pandas as pd
 import plotly.express as px
 import numpy as np
 
-# --- 1. CONFIG (Must be the very first Streamlit command) ---
+# --- 1. CONFIG ---
 st.set_page_config(page_title="M&A Strategy AI", layout="wide", page_icon="📈")
 
-# --- 2. CLEAN CSS STYLING (Fixed for Python 3.14 stability) ---
+# --- 2. STYLING ---
 st.html("""
 <style>
     div[data-testid="stMetric"] {
@@ -19,14 +19,20 @@ st.html("""
 </style>
 """)
 
-# --- 3. DATA ENGINE ---
+# --- 3. DATA ENGINE (With Auto-Scaling Fix) ---
 @st.cache_data
 def get_data():
     try:
         df = pd.read_csv("acquisitions_update_2021.csv")
-        # Cleaning numerical columns
         df['Acquisition Price'] = pd.to_numeric(df['Acquisition Price'], errors='coerce')
         df['Acquisition Year'] = pd.to_numeric(df['Acquisition Year'], errors='coerce')
+        
+        # MISTAKE FIX: If prices are in full dollars (e.g. 1,000,000), 
+        # convert them to Millions (1.0) so our 'Billions' math works.
+        avg_val = df['Acquisition Price'].mean()
+        if avg_val > 1000000:
+            df['Acquisition Price'] = df['Acquisition Price'] / 1000000
+            
         return df.dropna(subset=['Acquisition Year'])
     except:
         return pd.DataFrame()
@@ -49,21 +55,24 @@ else:
     st.title("🚀 M&A Strategic Value & Success Analytics")
     st.caption("Forensic analysis of technological consolidation and market premium trends.")
 
-    # --- KPI SECTION (Corrected Units) ---
+    # --- KPI SECTION (Mistake Corrected) ---
     k1, k2, k3, k4 = st.columns(4)
     
     with k1:
         st.metric("Total Deals", len(f_df))
     
     with k2:
-        # Values in dataset are in Millions. Summing and dividing by 1000 gives Billions.
+        # Now that data is in Millions, sum/1000 gives us real Billions
         total_bn = f_df['Acquisition Price'].sum() / 1000
         st.metric("Total Invested", f"${total_bn:,.2f}B")
     
     with k3:
-        # Mean deal value in Millions
+        # Smart formatting for average deal size
         avg_m = f_df['Acquisition Price'].mean()
-        st.metric("Avg Deal Size", f"${avg_m:,.1f}M")
+        if avg_m >= 1000:
+            st.metric("Avg Deal Size", f"${avg_m/1000:,.2f}B")
+        else:
+            st.metric("Avg Deal Size", f"${avg_m:,.1f}M")
     
     with k4:
         top_sector = f_df['Business'].mode()[0] if not f_df.empty else "N/A"
@@ -71,7 +80,7 @@ else:
 
     st.divider()
 
-    # --- TABS FOR ANALYSIS ---
+    # --- TABS ---
     tab1, tab2 = st.tabs(["📊 Market Dynamics", "🤖 Predictive Lab"])
 
     with tab1:
@@ -89,7 +98,6 @@ else:
             st.plotly_chart(fig_bar, use_container_width=True)
 
         st.subheader("🔍 Product Evolution Matrix")
-        st.write("Mapping acquired companies to the 'Derived Products' that scaled post-acquisition.")
         st.dataframe(
             f_df[['Acquired Company', 'Parent Company', 'Derived Products', 'Business']].dropna(subset=['Derived Products']).head(25),
             use_container_width=True
@@ -97,24 +105,18 @@ else:
 
     with tab2:
         st.subheader("🤖 Future Deal Price Estimator")
-        st.write("Estimate the cost of a target based on historical company behavior and sector trends.")
-        
         p1, p2, p3 = st.columns(3)
         with p1:
             pred_parent = st.selectbox("Acquirer", all_parents)
         with p2:
-            pred_biz = st.selectbox("Industry Segment", sorted(df['Business'].unique()))
+            pred_biz = st.selectbox("Target Industry Segment", sorted(df['Business'].unique()))
         with p3:
             pred_year = st.number_input("Target Year", 2026, 2030, 2026)
 
         if st.button("Generate AI Valuation Estimate"):
-            # Predictive Logic: Median company pricing + inflation multiplier
             base_val = df[df['Parent Company'] == pred_parent]['Acquisition Price'].median()
             if np.isnan(base_val) or base_val == 0:
                 base_val = df[df['Business'] == pred_biz]['Acquisition Price'].mean()
             
-            # Simulated Growth Factor (5% per year from the last known year 2021)
             prediction = base_val * (1 + (pred_year - 2021) * 0.05)
-            
             st.success(f"Estimated Acquisition Price: **${prediction:,.2f} Million**")
-            st.info("Model: Simulated Random Forest Regressor | Baseline: Historical Median Multiples")
